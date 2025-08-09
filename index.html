@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Health Optimization Daily Tracker</title>
+<style>
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:#0b0f14;color:#e5e7eb}
+  header{position:sticky;top:0;background:#0b0f14;border-bottom:1px solid #1f2937}
+  .wrap{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:14px 16px}
+  .container{max-width:1100px;margin:0 auto;padding:16px}
+  input,select,button,textarea{background:#0f172a;color:#e5e7eb;border:1px solid #1f2937;border-radius:10px;padding:10px}
+  .card{background:#111827;border:1px solid #1f2937;border-radius:16px;overflow:hidden}
+  .grid{display:grid;grid-template-columns:110px 1fr 110px 1fr 170px 90px;gap:6px}
+  .row{display:contents}
+  .head{display:grid;grid-template-columns:110px 1fr 110px 1fr 170px 90px;padding:10px;background:#0f172a;border-bottom:1px solid #1f2937;font-weight:600}
+  .cell{padding:10px;border-bottom:1px dashed #1f2937}
+  .pill{padding:3px 8px;border-radius:999px;font-size:12px;border:1px solid #1f2937}
+  .must{background:rgba(16,185,129,.15)} .opt{background:rgba(107,114,128,.25)} .rev{background:rgba(244,63,94,.15)}
+  .completed .cell{opacity:.5;text-decoration:line-through}
+  .note{grid-column:1/-1;padding:0 10px 14px} .note textarea{width:100%;min-height:70px;border-radius:12px}
+  .hidden{display:none}
+  .footer{color:#9ca3af;font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<header><div class="wrap"><h1 style="font-size:18px;margin:0">Health Optimization Daily Tracker</h1>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <input id="search" placeholder="Search actions, benefits, or labs…"/>
+    <select id="filterPriority"><option value="">All</option><option>Must-do</option><option>Optional</option><option>Review</option></select>
+    <button id="clearCompleted">Clear completed</button>
+    <button id="exportICS">iCal</button>
+    <button id="exportCSV">Apple Health CSV</button>
+  </div></div></header>
+<div class="container">
+  <div class="card">
+    <div class="head"><div>Time</div><div>Action</div><div>Priority</div><div>Why it matters</div><div>Lab Recheck</div><div>Status</div></div>
+    <div id="rows" class="grid"></div>
+  </div>
+  <div class="footer">Tap an action to expand notes. Notes save locally in your browser.</div>
+</div>
+<script>
+const scheduleData = [
+  {time:'7:00 a.m.', action:'Open blinds / 10 min outdoor sunlight', priority:'Must-do', why:'Circadian anchor', lab:'—'},
+  {time:'7:00 a.m.', action:'Record HRV, resting HR, weight', priority:'Must-do', why:'Readiness tracking', lab:'Weekly review'},
+  {time:'7:00 a.m.', action:'Testosterone Cypionate 30 mg SQ (morning)', priority:'Review', why:'TRT; watch Hct', lab:'CBC/Hct q4–8wk'},
+  {time:'7:05 a.m.', action:'Tesamorelin 2 mg SQ', priority:'Must-do', why:'Body comp (HIV-assoc.)', lab:'IGF‑1, FBG 8–12 wk'},
+  {time:'8:00 a.m.', action:'Biktarvy', priority:'Must-do', why:'HIV suppression', lab:'HIV RNA/CD4 q3–6mo'},
+  {time:'6:30 p.m.', action:'Strength Training 45–60 min (3x/wk)', priority:'Must-do', why:'Muscle & insulin sensitivity', lab:'Body comp quarterly'},
+  {time:'9:50 p.m.', action:'EL‑Restora‑Z', priority:'Must-do', why:'Sleep protocol', lab:'Med review q6mo'}
+];
+
+const rows = document.getElementById('rows');
+let state = JSON.parse(localStorage.getItem('health_tracker_state')||'{}');
+
+function render(list){
+  rows.innerHTML='';
+  list.forEach((item, idx)=>{
+    const id='row_'+idx;
+    const done = state[id] && state[id].done;
+    const note = state[id] ? (state[id].note||'') : '';
+    const priClass = item.priority==='Must-do'?'must':(item.priority==='Optional'?'opt':'rev');
+    const wrap = document.createElement('div');
+    wrap.className = 'row'+(done?' completed':'');
+    wrap.innerHTML = `
+      <div class="cell">${item.time}</div>
+      <div class="cell"><strong>${item.action}</strong></div>
+      <div class="cell"><span class="pill ${priClass}">${item.priority}</span></div>
+      <div class="cell">${item.why}</div>
+      <div class="cell">${item.lab}</div>
+      <div class="cell"><button onclick="toggle('${id}')">${done?'↩':'✔'}</button> <button onclick="expand('${id}')">📝</button></div>
+      <div class="note hidden" id="${id}_note"><textarea oninput="saveNote('${id}', this.value)" placeholder="Notes, effects…">${note}</textarea></div>`;
+    rows.appendChild(wrap);
+  });
+}
+function save(){ localStorage.setItem('health_tracker_state', JSON.stringify(state)); }
+function toggle(id){ state[id]=state[id]||{}; state[id].done=!state[id].done; save(); applyFilters(); }
+function expand(id){ document.getElementById(id+'_note').classList.toggle('hidden'); }
+function saveNote(id, val){ state[id]=state[id]||{}; state[id].note=val; save(); }
+document.getElementById('clearCompleted').onclick=()=>{ Object.keys(state).forEach(k=>{if(state[k].done) delete state[k];}); save(); applyFilters(); };
+
+const search = document.getElementById('search');
+const filterPriority = document.getElementById('filterPriority');
+search.oninput=applyFilters; filterPriority.onchange=applyFilters;
+function applyFilters(){
+  const term = (search.value||'').toLowerCase();
+  const pri = filterPriority.value;
+  const filtered = scheduleData.filter(i=>{
+    const text = (i.action+' '+i.why+' '+i.lab+' '+i.time).toLowerCase();
+    const match = text.includes(term);
+    const priOk = !pri || i.priority===pri;
+    return match && priOk;
+  });
+  render(filtered);
+}
+applyFilters();
+
+// iCal
+function makeICS(){
+  const today = new Date(); const y=today.getFullYear(); const m=('0'+(today.getMonth()+1)).slice(-2); const d=('0'+today.getDate()).slice(-2);
+  let ics = 'BEGIN:VCALENDAR\nVERSION:2.0\nCALSCALE:GREGORIAN\nPRODID:-//HealthTracker//EN\n';
+  scheduleData.forEach((i,idx)=>{
+    ics += 'BEGIN:VEVENT\nUID:item'+idx+'@health\nDTSTAMP:'+y+m+d+'T000000Z\n';
+    ics += 'SUMMARY:'+i.time+' — '+i.action+'\nDESCRIPTION:'+i.why+' (Lab: '+i.lab+')\nDTSTART:'+y+m+d+'T090000\nEND:VEVENT\n';
+  });
+  ics += 'END:VCALENDAR';
+  return ics;
+}
+document.getElementById('exportICS').onclick=()=>{
+  const a = document.createElement('a'); a.download='health-tracker.ics';
+  a.href = URL.createObjectURL(new Blob([makeICS()],{type:'text/calendar'})); a.click();
+};
+
+// Apple Health CSV
+function makeCSV(){
+  const headers=['Date','Time','Category','Item','Dose','Notes'];
+  const today = new Date().toISOString().slice(0,10);
+  const rows = scheduleData.map(i=>[today,i.time,'Routine',i.action,'',i.why]);
+  return [headers.join(','), ...rows.map(r=>r.map(v=>`"${String(v).replace('"','\"')}"`).join(','))].join('\n');
+}
+document.getElementById('exportCSV').onclick=()=>{
+  const a=document.createElement('a'); a.download='apple-health-import.csv';
+  a.href=URL.createObjectURL(new Blob([makeCSV()],{type:'text/csv'})); a.click();
+};
+</script>
+</body></html>
